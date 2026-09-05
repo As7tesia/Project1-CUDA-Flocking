@@ -51,9 +51,10 @@ void checkCUDAError(const char *msg, int line = -1) {
 
 // LOOK-1.2 Parameters for the boids algorithm.
 // These worked well in our reference implementation.
-#define rule1Distance 5.0f
-#define rule2Distance 3.0f
-#define rule3Distance 5.0f
+    // these distances are SQUARED, to save a square root down the line inside computeVelocityChange
+#define rule1Distance 25.0f
+#define rule2Distance 9.0f
+#define rule3Distance 25.0f
 
 #define rule1Scale 0.01f
 #define rule2Scale 0.1f
@@ -247,10 +248,58 @@ void Boids::copyBoidsToVBO(float *vbodptr_positions, float *vbodptr_velocities) 
 * in the `pos` and `vel` arrays.
 */
 __device__ glm::vec3 computeVelocityChange(int N, int iSelf, const glm::vec3 *pos, const glm::vec3 *vel) {
-    // Rule 1: boids fly towards their local perceived center of mass, which excludes themselves
-    // Rule 2: boids try to stay a distance d away from each other
-    // Rule 3: boids try to match the speed of surrounding boids
-    return glm::vec3(0.0f, 0.0f, 0.0f);
+    glm::vec3 iSelf_pos = pos[iSelf];   // also to prevent more memory access down the road
+    glm::vec3 rule1_result, rule2_result, rule3_result;
+    glm::vec3 perceived_center(0);  // rule 1 var
+    unsigned rule1_num_neighbors = 0;     // rule 1 var
+    glm::vec3 c(0.f);   // rule 2 var
+    glm::vec3 perceived_velocity(0);    // rule 3 var
+    unsigned rule3_num_neighbors = 0;   // rule 3 var
+
+    
+    for (int i = 0; i < N; ++i) {
+        if (i == iSelf) continue;
+        glm::vec3 i_pos = pos[i];   // prevent 2 memory access
+        float dist = glm::dot(i_pos - iSelf_pos, i_pos - iSelf_pos);    // using dot instead of length to save a square root calc
+        
+        // Rule 1: boids fly towards their local perceived center of mass, which excludes themselves
+        if (dist < rule1Distance) {
+            ++rule1_num_neighbors;
+            perceived_center += i_pos;
+
+        }
+        
+        // Rule 2: boids try to stay a distance d away from each other
+        if (dist < rule2Distance) {
+            c -= (i_pos - iSelf_pos);
+        }
+        
+        // Rule 3: boids try to match the speed of surrounding boids
+        if (dist < rule3Distance) {
+            ++rule3_num_neighbors;
+            perceived_velocity += vel[i];
+        }
+    }
+
+    // Rule 1
+    if (rule1_num_neighbors > 0) {
+        rule1_result = ((perceived_center / static_cast<float>(rule1_num_neighbors)) - iSelf_pos) * rule1Scale;
+    } else {
+        rule1_result = glm::vec3(0.f);
+    }
+
+    // Rule 2
+    rule2_result = c * rule2Scale;
+
+    // Rule 3
+    if (rule3_num_neighbors > 0) {
+        rule3_result = ((perceived_velocity / static_cast<float>(rule3_num_neighbors))) * rule3Scale;
+    } else {
+        rule3_result = glm::vec3(0.f);
+    }
+
+    
+    return rule1_result + rule2_result + rule3_result;
 }
 
 /**
@@ -262,6 +311,7 @@ __global__ void kernUpdateVelocityBruteForce(int N, glm::vec3 *pos,
     // Compute a new velocity based on pos and vel1
     // Clamp the speed
     // Record the new velocity into vel2. Question: why NOT vel1?
+    
 }
 
 /**
