@@ -51,10 +51,15 @@ void checkCUDAError(const char *msg, int line = -1) {
 
 // LOOK-1.2 Parameters for the boids algorithm.
 // These worked well in our reference implementation.
-    // these distances are SQUARED, to save a square root down the line inside computeVelocityChange
-#define rule1Distance 25.0f
-#define rule2Distance 9.0f
-#define rule3Distance 25.0f
+#define rule1Distance 5.0f
+#define rule2Distance 3.0f
+#define rule3Distance 5.0f
+
+// Squared radii, derived from the params above so the neighbor tests can
+// compare squared distances and skip a square root per compare
+#define rule1DistanceSq (rule1Distance * rule1Distance)
+#define rule2DistanceSq (rule2Distance * rule2Distance)
+#define rule3DistanceSq (rule3Distance * rule3Distance)
 
 #define rule1Scale 0.01f
 #define rule2Scale 0.1f
@@ -263,19 +268,19 @@ __device__ glm::vec3 computeVelocityChange(int N, int iSelf, const glm::vec3 *po
         float dist = glm::dot(i_pos - iSelf_pos, i_pos - iSelf_pos);    // using dot instead of length to save a square root calc
         
         // Rule 1: boids fly towards their local perceived center of mass, which excludes themselves
-        if (dist < rule1Distance) {
+        if (dist < rule1DistanceSq) {
             ++rule1_num_neighbors;
             perceived_center += i_pos;
 
         }
         
         // Rule 2: boids try to stay a distance d away from each other
-        if (dist < rule2Distance) {
+        if (dist < rule2DistanceSq) {
             c -= (i_pos - iSelf_pos);
         }
         
         // Rule 3: boids try to match the speed of surrounding boids
-        if (dist < rule3Distance) {
+        if (dist < rule3DistanceSq) {
             ++rule3_num_neighbors;
             perceived_velocity += vel[i];
         }
