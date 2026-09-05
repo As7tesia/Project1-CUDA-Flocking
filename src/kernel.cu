@@ -265,7 +265,8 @@ __device__ glm::vec3 computeVelocityChange(int N, int iSelf, const glm::vec3 *po
     for (int i = 0; i < N; ++i) {
         if (i == iSelf) continue;
         glm::vec3 i_pos = pos[i];   // prevent 2 memory access
-        float dist = glm::dot(i_pos - iSelf_pos, i_pos - iSelf_pos);    // using dot instead of length to save a square root calc
+        glm::vec3 offset = i_pos - iSelf_pos;   // vector from iself to boid i, reused by rule 2
+        float dist = glm::dot(offset, offset);  // squared distance, dot instead of length saves a square root
         
         // Rule 1: boids fly towards their local perceived center of mass, which excludes themselves
         if (dist < rule1DistanceSq) {
@@ -276,7 +277,7 @@ __device__ glm::vec3 computeVelocityChange(int N, int iSelf, const glm::vec3 *po
         
         // Rule 2: boids try to stay a distance d away from each other
         if (dist < rule2DistanceSq) {
-            c -= (i_pos - iSelf_pos);
+            c -= offset;
         }
         
         // Rule 3: boids try to match the speed of surrounding boids
@@ -316,7 +317,14 @@ __global__ void kernUpdateVelocityBruteForce(int N, glm::vec3 *pos,
     // Compute a new velocity based on pos and vel1
     // Clamp the speed
     // Record the new velocity into vel2. Question: why NOT vel1?
-    
+    int index = threadIdx.x + blockIdx.x * blockDim.x;
+    if (index >= N) return;
+
+    glm::vec3 new_velocity = vel1[index] + computeVelocityChange(N, index, pos, vel1);
+    if (glm::length(new_velocity) > maxSpeed) {
+        new_velocity = glm::normalize(new_velocity) * maxSpeed;
+    }
+    vel2[index] = new_velocity;
 }
 
 /**
@@ -421,6 +429,12 @@ __global__ void kernUpdateVelNeighborSearchCoherent(
 void Boids::stepSimulationNaive(float dt) {
     // TODO-1.2 - use the kernels you wrote to step the simulation forward in time.
     // TODO-1.2 ping-pong the velocity buffers
+    dim3 gridSize((numObjects + (blockSize - 1)) / blockSize);
+    kernUpdateVelocityBruteForce<<<gridSize, blockSize>>>(numObjects, dev_pos, dev_vel1, dev_vel2);
+    checkCUDAErrorWithLine("kernUpdateVelocityBruteForce failed");
+    kernUpdatePos<<<gridSize, blockSize>>>(numObjects, dt, dev_pos, dev_vel2);
+    checkCUDAErrorWithLine("kernUpdatePos failed");
+    std::swap(dev_vel1, dev_vel2);
 }
 
 void Boids::stepSimulationScatteredGrid(float dt) {
