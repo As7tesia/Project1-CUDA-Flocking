@@ -256,64 +256,66 @@ void Boids::copyBoidsToVBO(float *vbodptr_positions, float *vbodptr_velocities) 
 ******************/
 
 /**
-* LOOK-1.2 You can use this as a helper for kernUpdateVelocityBruteForce.
-* __device__ code can be called from a __global__ context
-* Compute the new velocity on the body with index `iSelf` due to the `N` boids
-* in the `pos` and `vel` arrays.
+* Running sums for the three flocking rules, gathered over one boid's neighbors.
+* Fill it with accumulateNeighbor, then turn it into a velocity change with
+* finalizeVelocityChange. Shared by the naive and grid-based kernels, which only
+* differ in how they find neighbors.
 */
-__device__ glm::vec3 computeVelocityChange(int N, int iSelf, const glm::vec3 *pos, const glm::vec3 *vel) {
-    glm::vec3 iSelf_pos = pos[iSelf];   // also to prevent more memory access down the road
-    glm::vec3 rule1_result, rule2_result, rule3_result;
-    glm::vec3 perceived_center(0);  // rule 1 var
-    unsigned rule1_num_neighbors = 0;     // rule 1 var
-    glm::vec3 c(0.f);   // rule 2 var
-    glm::vec3 perceived_velocity(0);    // rule 3 var
-    unsigned rule3_num_neighbors = 0;   // rule 3 var
+struct RuleAccumulators {
+    glm::vec3 perceived_center = glm::vec3(0.f);    // rule 1: sum of neighbor positions
+    unsigned rule1_num_neighbors = 0;               // rule 1: how many were summed
+    glm::vec3 c = glm::vec3(0.f);                   // rule 2: separation vector
+    glm::vec3 perceived_velocity = glm::vec3(0.f);  // rule 3: sum of neighbor velocities
+    unsigned rule3_num_neighbors = 0;               // rule 3: how many were summed
+};
 
-    
-    for (int i = 0; i < N; ++i) {
-        if (i == iSelf) continue;
-        glm::vec3 i_pos = pos[i];   // prevent 2 memory access
-        glm::vec3 offset = i_pos - iSelf_pos;   // vector from iself to boid i, reused by rule 2
-        float dist = glm::dot(offset, offset);  // squared distance, dot instead of length saves a square root
-        
-        // Rule 1: boids fly towards their local perceived center of mass, which excludes themselves
-        if (dist < rule1DistanceSq) {
-            ++rule1_num_neighbors;
-            perceived_center += i_pos;
+/**
+* Run the three rule range tests for a single neighbor and add it into acc.
+* Knows nothing about indices. The caller decides which boids are candidates
+* and is responsible for skipping self.
+*/
+__device__ void accumulateNeighbor(const glm::vec3 &iSelf_pos, const glm::vec3 &neighbor_pos,
+    const glm::vec3 &neighbor_vel, RuleAccumulators &acc) {
+    glm::vec3 offset = neighbor_pos - iSelf_pos;   // vector from iself to neighbor, reused by rule 2
+    float dist = glm::dot(offset, offset);  // squared distance, dot instead of length saves a square root
 
-        }
-        
-        // Rule 2: boids try to stay a distance d away from each other
-        if (dist < rule2DistanceSq) {
-            c -= offset;
-        }
-        
-        // Rule 3: boids try to match the speed of surrounding boids
-        if (dist < rule3DistanceSq) {
-            ++rule3_num_neighbors;
-            perceived_velocity += vel[i];
-        }
+    // Rule 1: boids fly towards their local perceived center of mass, which excludes themselves
+    if (dist < rule1DistanceSq) {
+        ++acc.rule1_num_neighbors;
+        acc.perceived_center += neighbor_pos;
     }
 
+    // Rule 2: boids try to stay a distance d away from each other
+    if (dist < rule2DistanceSq) {
+        acc.c -= offset;
+    }
+
+    // Rule 3: boids try to match the speed of surrounding boids
+    if (dist < rule3DistanceSq) {
+        ++acc.rule3_num_neighbors;
+        acc.perceived_velocity += neighbor_vel;
+    }
+}
+
+/**
+* Turn the accumulated sums into the velocity change for the boid at iSelf_pos.
+*/
+__device__ glm::vec3 finalizeVelocityChange(const RuleAccumulators &acc, const glm::vec3 &iSelf_pos) {
+    glm::vec3 rule1_result(0.f), rule2_result(0.f), rule3_result(0.f);
+
     // Rule 1
-    if (rule1_num_neighbors > 0) {
-        rule1_result = ((perceived_center / static_cast<float>(rule1_num_neighbors)) - iSelf_pos) * rule1Scale;
-    } else {
-        rule1_result = glm::vec3(0.f);
+    if (acc.rule1_num_neighbors > 0) {
+        rule1_result = ((acc.perceived_center / static_cast<float>(acc.rule1_num_neighbors)) - iSelf_pos) * rule1Scale;
     }
 
     // Rule 2
-    rule2_result = c * rule2Scale;
+    rule2_result = acc.c * rule2Scale;
 
     // Rule 3
-    if (rule3_num_neighbors > 0) {
-        rule3_result = ((perceived_velocity / static_cast<float>(rule3_num_neighbors))) * rule3Scale;
-    } else {
-        rule3_result = glm::vec3(0.f);
+    if (acc.rule3_num_neighbors > 0) {
+        rule3_result = (acc.perceived_velocity / static_cast<float>(acc.rule3_num_neighbors)) * rule3Scale;
     }
 
-    
     return rule1_result + rule2_result + rule3_result;
 }
 
@@ -329,8 +331,16 @@ __global__ void kernUpdateVelocityBruteForce(int N, glm::vec3 *pos,
     int index = threadIdx.x + blockIdx.x * blockDim.x;
     if (index >= N) return;
 
-    glm::vec3 new_velocity = vel1[index] + computeVelocityChange(N, index, pos, vel1);
-    if (glm::length(new_velocity) > maxSpeed) {
+    glm::vec3 iSelf_pos = pos[index];   // load once, reused for every neighbor
+    RuleAccumulators acc;
+
+    for (int i = 0; i < N; ++i) {
+        if (i == index) continue;
+        accumulateNeighbor(iSelf_pos, pos[i], vel1[i], acc);
+    }
+
+    glm::vec3 new_velocity = vel1[index] + finalizeVelocityChange(acc, iSelf_pos);
+        if (glm::length(new_velocity) > maxSpeed) {
         new_velocity = glm::normalize(new_velocity) * maxSpeed;
     }
     vel2[index] = new_velocity;
