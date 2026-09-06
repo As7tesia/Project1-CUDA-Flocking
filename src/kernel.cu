@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdio>
 #include <iostream>
+#include <utility>
 #include <vector>
 
 #include <thrust/sort.h>
@@ -192,6 +193,14 @@ void Boids::initSimulation(int N) {
     gridMinimum.z -= halfGridWidth;
 
     // TODO-2.1 TODO-2.3 - Allocate additional buffers here.
+    cudaMalloc((void**)&dev_particleArrayIndices, N * sizeof(int));
+    checkCUDAErrorWithLine("cudaMalloc dev_particleArrayIndices failed");
+    
+    cudaMalloc((void**)&dev_particleGridIndices, N * sizeof(int));
+    checkCUDAErrorWithLine("cudaMalloc dev_particleGridIndices failed");
+
+    
+
     cudaDeviceSynchronize();
 }
 
@@ -365,10 +374,17 @@ __device__ int gridIndex3Dto1D(int x, int y, int z, int gridResolution) {
 __global__ void kernComputeIndices(int N, int gridResolution,
     glm::vec3 gridMin, float inverseCellWidth,
     glm::vec3 *pos, int *indices, int *gridIndices) {
-        // TODO-2.1
-        // - Label each boid with the index of its grid cell.
-        // - Set up a parallel array of integer indices as pointers to the actual
-        //   boid data in pos and vel1/vel2
+    // TODO-2.1
+    // - Label each boid with the index of its grid cell.
+    // - Set up a parallel array of integer indices as pointers to the actual
+    //   boid data in pos and vel1/vel2
+    int index = threadIdx.x + (blockIdx.x * blockDim.x);
+    if (index >= N) return;
+    glm::vec3 boidPos = pos[index];
+    glm::ivec3 gridIdx3D = glm::floor((boidPos - gridMin) * inverseCellWidth);
+    int gridIdx1D = gridIndex3Dto1D(gridIdx3D.x, gridIdx3D.y, gridIdx3D.z, gridResolution);
+    indices[index] = index;
+    gridIndices[index] = gridIdx1D;
 }
 
 // LOOK-2.1 Consider how this could be useful for indicating that a cell
@@ -386,6 +402,26 @@ __global__ void kernIdentifyCellStartEnd(int N, int *particleGridIndices,
     // Identify the start point of each cell in the gridIndices array.
     // This is basically a parallel unrolling of a loop that goes
     // "this index doesn't match the one before it, must be a new cell!"
+    int index = (blockIdx.x * blockDim.x) + threadIdx.x;
+    if (index >= N) return;
+
+    int cur_cell = particleGridIndices[index];
+    // edge case index 0
+    if (index == 0) {
+        gridCellStartIndices[cur_cell] = index;
+        return;
+    }
+    int last_cell = particleGridIndices[index - 1];
+    // edge case last index
+    if (index == N -1) {
+        gridCellEndIndices[cur_cell] = index;
+    }
+
+    // normal case
+    if (cur_cell != last_cell) {
+        gridCellStartIndices[cur_cell] = index;
+        gridCellEndIndices[last_cell] = index - 1;
+    }
 }
 
 __global__ void kernUpdateVelNeighborSearchScattered(
@@ -402,6 +438,7 @@ __global__ void kernUpdateVelNeighborSearchScattered(
     // - Access each boid in the cell and compute velocity change from
     //   the boids rules, if this boid is within the neighborhood distance.
     // - Clamp the speed change before putting the new speed in vel2
+
 }
 
 __global__ void kernUpdateVelNeighborSearchCoherent(
