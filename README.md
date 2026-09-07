@@ -5,6 +5,8 @@ Project 1 - Flocking**
     - [LinkedIn](https://www.linkedin.com/in/yichen-huang-970b582bb/), [personal website](https://as7tesia.com/)
 * Tested on: Windows 11, AMD Ryzen 5950X @ 4.3GHz 64GB, RTX 3090 24GB
 
+[Main demo, 200k boids (mp4)](images/demo/200K_main.mp4)
+
 <p align="center">
   <img src="images/demo/200K_1.gif" width="32%" alt="200k boids" />
   <img src="images/demo/200K_3.gif" width="32%" alt="200k boids" />
