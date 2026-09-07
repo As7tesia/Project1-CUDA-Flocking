@@ -7,7 +7,7 @@
   VISUALIZE / UNIFORM_GRID / COHERENT_GRID / blockSize / cell-width settings you want
   to measure. This script does not rebuild; it just runs the exe once per boid count
   with cwd = build/ (shaders are loaded by relative path), waits for it to exit on
-  its own, and moves <label>.csv into profiling/raw/.
+  its own, and moves <label>.csv into profiling/raw/ (or -RawDir).
 
   Label convention (the analysis script parses it):
       <mode>_vis<0|1>_bs<blockSize>_cw<cellWidthMultiplier>_n<N>
@@ -24,14 +24,15 @@ param(
     [hashtable]$StepsFor = @{},
     [int]$Warmup = 200,
     [int]$TimeoutSec = 900,
-    [switch]$Force
+    [switch]$Force,
+    [string]$RawDir = ''   # where the CSVs go; default profiling/raw
 )
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $exe  = Join-Path $root 'build\bin\Release\cis5650_boids.exe'
 $cwd  = Join-Path $root 'build'
-$raw  = Join-Path $PSScriptRoot 'raw'
+$raw  = if ($RawDir) { $RawDir } else { Join-Path $PSScriptRoot 'raw' }
 New-Item -ItemType Directory -Force $raw | Out-Null
 
 if (-not (Test-Path $exe)) { throw "exe not found: $exe (build Release first)" }

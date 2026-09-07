@@ -14,6 +14,7 @@ import argparse
 import glob
 import os
 import re
+import time
 
 import numpy as np
 import pandas as pd
@@ -255,7 +256,16 @@ def legend(ax, **kw):
 
 
 def save(fig, path):
-    fig.savefig(path, dpi=150, facecolor=SURFACE, bbox_inches="tight")
+    # Retry: on Windows a thumbnailer or file watcher sometimes has the previous PNG
+    # memory-mapped for a moment, and opening it for truncation fails with EINVAL/EACCES.
+    for attempt in range(20):
+        try:
+            fig.savefig(path, dpi=150, facecolor=SURFACE, bbox_inches="tight")
+            break
+        except OSError as e:
+            if e.errno not in (13, 22) or attempt == 19:
+                raise
+            time.sleep(0.25)
     plt.close(fig)
     print("wrote", os.path.relpath(path, ROOT))
 
@@ -283,29 +293,36 @@ def plot_block_size(df, images, n):
     d = df[(df.n == n) & (df.vis == 0) & (df.cw == 2)]
     if d.bs.nunique() < 2:
         return
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4.4), facecolor=SURFACE)
-    # left: FPS (what the assignment asks for). right: step time relative to block 128, linear,
-    # because the differences are tens of percent and vanish on a log axis.
-    for mode in MODE_ORDER:
-        s = d[d["mode"] == mode].sort_values("bs")
-        if s.empty:
-            continue
-        axes[0].plot(s.bs, s.fps, "-", color=MODE_COLOR[mode], lw=2, marker="o", ms=5, label=MODE_NAME[mode])
-        ref = s[s.bs == 128].step_mean
-        if not ref.empty:
-            axes[1].plot(s.bs, s.step_mean / ref.iloc[0], "-", color=MODE_COLOR[mode], lw=2, marker="o", ms=5,
-                         label=MODE_NAME[mode])
-    style(axes[0], "Block size (threads)", "FPS (from frame time)")
-    style(axes[1], "Block size (threads)", "Step time relative to block 128")
-    plain_log_y(axes[0])
-    axes[1].axhline(1.0, color=AXIS, lw=1, zorder=0)
-    axes[1].yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.2f}x"))
-    for ax in axes:
+    # Two separate images. FPS is what the assignment asks for. Step time relative to
+    # block 128 is on a linear axis because the differences are tens of percent and
+    # vanish on a log axis.
+    stem = os.path.join(images, f"block-size-sweep-{fmt_n(n)}-boids")
+    for value, fname in (("fps", stem + "-fps.png"), ("rel", stem + "-relative-step-time.png")):
+        fig, ax = plt.subplots(figsize=(8, 4.8), facecolor=SURFACE)
+        for mode in MODE_ORDER:
+            s = d[d["mode"] == mode].sort_values("bs")
+            if s.empty:
+                continue
+            if value == "fps":
+                y = s.fps
+            else:
+                ref = s[s.bs == 128].step_mean
+                if ref.empty:
+                    continue
+                y = s.step_mean / ref.iloc[0]
+            ax.plot(s.bs, y, "-", color=MODE_COLOR[mode], lw=2, marker="o", ms=5, label=MODE_NAME[mode])
+        if value == "fps":
+            style(ax, "Block size (threads)", "FPS (from frame time)")
+            plain_log_y(ax)
+        else:
+            style(ax, "Block size (threads)", "Step time relative to block 128")
+            ax.axhline(1.0, color=AXIS, lw=1, zorder=0)
+            ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.2f}x"))
         ax.set_xscale("log", base=2)
         ax.xaxis.set_major_locator(FixedLocator(sorted(d.bs.unique())))
         ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{int(v)}"))
-    legend(axes[0])
-    save(fig, os.path.join(images, f"block-size-sweep-{fmt_n(n)}-boids.png"))
+        legend(ax)
+        save(fig, fname)
 
 
 def plot_cells(df, images):

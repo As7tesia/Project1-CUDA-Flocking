@@ -35,7 +35,7 @@
 
 // LOOK-1.2 - change this to adjust particle count in the simulation
 // (with PROFILE 1 this is the default, overridable from the command line)
-int N_FOR_VIS = 50000;
+int N_FOR_VIS = 200000;
 const float DT = 0.2f;
 
 #if PROFILE
