@@ -26,15 +26,78 @@
 #define UNIFORM_GRID 1
 #define COHERENT_GRID 1
 
+// PROFILE 1: time each simulation step with a CUDA event pair, record per-frame
+// step time and wall-clock frame time, run a fixed number of steps, write
+// <label>.csv into the working directory, then exit.
+//   usage: cis5650_boids [label] [N] [steps]
+// PROFILE 0: original behaviour, none of this is compiled in.
+#define PROFILE 0
+
 // LOOK-1.2 - change this to adjust particle count in the simulation
-const int N_FOR_VIS = 50000;
+// (with PROFILE 1 this is the default, overridable from the command line)
+int N_FOR_VIS = 50000;
 const float DT = 0.2f;
+
+#if PROFILE
+#include <vector>
+#include <fstream>
+#include <iomanip>
+#include <cstdlib>
+
+#if UNIFORM_GRID && COHERENT_GRID
+#define PROFILE_MODE "coherent"
+#elif UNIFORM_GRID
+#define PROFILE_MODE "scattered"
+#else
+#define PROFILE_MODE "naive"
+#endif
+
+std::string profileLabel = "run";
+int profileSteps = 3000;
+cudaEvent_t profileStart, profileStop;
+float profileLastStepMs = 0.0f;
+std::vector<float> profileStepMs;   // GPU time of the step, from the event pair
+std::vector<float> profileFrameMs;  // wall-clock time of one main-loop iteration
+
+void profileWrite() {
+    std::string path = profileLabel + ".csv";
+    std::ofstream out(path);
+    out << "# label=" << profileLabel
+        << ",mode=" << PROFILE_MODE
+        << ",N=" << N_FOR_VIS
+        << ",vis=" << VISUALIZE
+        << ",steps=" << profileSteps
+        << ",dt=" << DT << "\n";
+    out << "step,step_ms,frame_ms\n";
+    out << std::fixed << std::setprecision(4);
+    for (size_t i = 0; i < profileStepMs.size(); i++) {
+        out << i << "," << profileStepMs[i] << "," << profileFrameMs[i] << "\n";
+    }
+    std::cout << "profile: wrote " << profileStepMs.size()
+              << " samples to " << path << std::endl;
+}
+#endif
 
 /**
 * C main function.
 */
 int main(int argc, char* argv[]) {
     projectName = "5650 CUDA Intro: Boids";
+
+    #if PROFILE
+    if (argc > 1) profileLabel = argv[1];
+    if (argc > 2) N_FOR_VIS = std::atoi(argv[2]);
+    if (argc > 3) profileSteps = std::atoi(argv[3]);
+    if (N_FOR_VIS <= 0 || profileSteps <= 0) {
+        std::cout << "usage: cis5650_boids [label] [N] [steps]" << std::endl;
+        return 1;
+    }
+    profileStepMs.reserve(profileSteps);
+    profileFrameMs.reserve(profileSteps);
+    std::cout << "profile: label=" << profileLabel << " mode=" << PROFILE_MODE
+              << " N=" << N_FOR_VIS << " vis=" << VISUALIZE
+              << " steps=" << profileSteps << std::endl;
+    #endif
 
     if (init(argc, argv)) {
         mainLoop();
@@ -98,6 +161,9 @@ bool init(int argc, char **argv) {
         return false;
     }
     glfwMakeContextCurrent(window);
+    #if PROFILE
+    glfwSwapInterval(0); // no v-sync, so VISUALIZE 1 frame times are not capped at the refresh rate
+    #endif
     glfwSetKeyCallback(window, keyCallback);
     glfwSetCursorPosCallback(window, mousePositionCallback);
     glfwSetMouseButtonCallback(window, mouseButtonCallback);
@@ -205,12 +271,22 @@ void initShaders(GLuint * program) {
         cudaGLMapBufferObject((void**)&dptrVertVelocities, boidVBO_velocities);
 
         // execute the kernel
+        #if PROFILE
+        cudaEventRecord(profileStart);
+        #endif
+
         #if UNIFORM_GRID && COHERENT_GRID
         Boids::stepSimulationCoherentGrid(DT);
         #elif UNIFORM_GRID
         Boids::stepSimulationScatteredGrid(DT);
         #else
         Boids::stepSimulationNaive(DT);
+        #endif
+
+        #if PROFILE
+        cudaEventRecord(profileStop);
+        cudaEventSynchronize(profileStop);
+        cudaEventElapsedTime(&profileLastStepMs, profileStart, profileStop);
         #endif
 
         #if VISUALIZE
@@ -229,6 +305,13 @@ void initShaders(GLuint * program) {
         Boids::unitTest(); // LOOK-1.2 We run some basic example code to make sure
                            // your CUDA development setup is ready to go.
 
+        #if PROFILE
+        cudaEventCreate(&profileStart);
+        cudaEventCreate(&profileStop);
+        int profileFrame = 0;
+        double profileLastTime = glfwGetTime();
+        #endif
+
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
 
@@ -242,6 +325,15 @@ void initShaders(GLuint * program) {
             }
 
             runCUDA();
+
+            #if PROFILE
+            profileStepMs.push_back(profileLastStepMs);
+            profileFrameMs.push_back((float)((time - profileLastTime) * 1000.0));
+            profileLastTime = time;
+            if (++profileFrame >= profileSteps) {
+                glfwSetWindowShouldClose(window, GLFW_TRUE);
+            }
+            #endif
 
             std::ostringstream ss;
             ss << "[";
@@ -265,6 +357,13 @@ void initShaders(GLuint * program) {
             glfwSwapBuffers(window);
             #endif
         }
+
+        #if PROFILE
+        profileWrite();
+        cudaEventDestroy(profileStart);
+        cudaEventDestroy(profileStop);
+        #endif
+
         glfwDestroyWindow(window);
         glfwTerminate();
     }
