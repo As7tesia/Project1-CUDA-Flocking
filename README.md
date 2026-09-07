@@ -6,17 +6,19 @@ Project 1 - Flocking**
 * Tested on: Windows 11, AMD Ryzen 5950X @ 4.3GHz 64GB, RTX 3090 24GB
 
 
-https://github.com/user-attachments/assets/6303cf51-7942-44f3-a6df-b913c61313be
+<p align="center">
+  <img src="images/demo/200K_main.gif">
+  <br>
+  <em>200,000 boids running at 800+ fps</em>
+</p>
 
 
 <p align="center">
   <img src="images/demo/200K_1.gif" width="32%" alt="200k boids" />
   <img src="images/demo/200K_3.gif" width="32%" alt="200k boids" />
   <img src="images/demo/200K_2.gif" width="32%" alt="200k boids" />
+  <em>parameter variations</em>
 </p>
-
-Above are simulations of 200,000 boids running at 800+ fps, though we will later see why fps is not a great measurement for performance here.
-
 ## Overview
 This project implements Craig Reynolds' boids flocking simulation, where each particle represents a boid and their positions are updated based on the 3 rules of cohesion, separation, and alignment.
 
