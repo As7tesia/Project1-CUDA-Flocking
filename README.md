@@ -7,16 +7,16 @@ Project 1 - Flocking**
 
 
 <p align="center">
-  <img src="images/demo/200K_main.gif">
+  <img src="images/demo/200K_main.webp">
   <br>
   <em>200,000 boids running at 800+ fps</em>
 </p>
 
 
 <p align="center">
-  <img src="images/demo/200K_1.gif" width="32%" alt="200k boids" />
-  <img src="images/demo/200K_3.gif" width="32%" alt="200k boids" />
-  <img src="images/demo/200K_2.gif" width="32%" alt="200k boids" />
+  <img src="images/demo/200K_1.webp" width="32%" alt="200k boids" />
+  <img src="images/demo/200K_3.webp" width="32%" alt="200k boids" />
+  <img src="images/demo/200K_2.webp" width="32%" alt="200k boids" />
   <em>parameter variations</em>
 </p>
 ## Overview
