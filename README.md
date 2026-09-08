@@ -3,7 +3,7 @@ Project 1 - Flocking**
 
 * Yichen Huang
     - [LinkedIn](https://www.linkedin.com/in/yichen-huang-970b582bb/), [personal website](https://as7tesia.com/)
-* Tested on: Windows 11, AMD Ryzen 5950X @ 4.3GHz 64GB, RTX 3090 24GB
+* Tested on: Windows 11, AMD Ryzen 5950X @ 4.3GHz (PBO Enabled), 64GB(3200 MT/s), RTX 3090 24GB
 
 
 <p align="center">
